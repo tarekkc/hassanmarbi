@@ -43,8 +43,8 @@ public class VersmentController {
         int versmentId = versmentDAO.insertVersment(versment);
         
         if (versmentId > 0) {
-            // Update client's annual amount by reducing the versment amount
-            updateClientMontantAfterVersment(versment.getClientId(), versment.getMontant(), false);
+            // Update client's remaining balance by reducing the versment amount
+            updateClientRemainingBalanceAfterVersment(versment.getClientId(), versment.getMontant(), false);
         }
         
         return versmentId;
@@ -71,9 +71,9 @@ public class VersmentController {
             // Calculate the difference and update client's montant
             BigDecimal difference = versment.getMontant().subtract(originalVersment.getMontant());
             if (difference.compareTo(BigDecimal.ZERO) != 0) {
-                // If difference is positive, we need to reduce more from client's montant
-                // If difference is negative, we need to add back to client's montant
-                updateClientMontantAfterVersment(versment.getClientId(), difference, false);
+                // If difference is positive, we need to reduce more from client's remaining balance
+                // If difference is negative, we need to add back to client's remaining balance
+                updateClientRemainingBalanceAfterVersment(versment.getClientId(), difference, false);
             }
         }
         
@@ -95,8 +95,8 @@ public class VersmentController {
         boolean success = versmentDAO.deleteVersmentById(versmentId);
         
         if (success) {
-            // Add back the versment amount to client's montant
-            updateClientMontantAfterVersment(versment.getClientId(), versment.getMontant(), true);
+            // Add back the versment amount to client's remaining balance
+            updateClientRemainingBalanceAfterVersment(versment.getClientId(), versment.getMontant(), true);
         }
         
         return success;
@@ -112,52 +112,94 @@ public class VersmentController {
         return versmentDAO.getTotalVersmentsByClientId(clientId);
     }
 
-    // 🔄 8. Update client's montant after versment operations
-    private void updateClientMontantAfterVersment(int clientId, BigDecimal versmentAmount, boolean isRestore) {
+    // 🔄 8. Update client's remaining balance after versment operations
+    private void updateClientRemainingBalanceAfterVersment(int clientId, BigDecimal versmentAmount, boolean isRestore) {
         try {
             Client client = clientDAO.getClientById(clientId);
-            if (client != null && client.getMontant() != null) {
-                BigDecimal currentMontant = BigDecimal.valueOf(client.getMontant());
-                BigDecimal newMontant;
-                
-                if (isRestore) {
-                    // Restore: add back the versment amount
-                    newMontant = currentMontant.add(versmentAmount);
+            if (client != null) {
+                // Get current remaining balance, default to annual montant if not set
+                BigDecimal currentRemainingBalance;
+                if (client.getRemainingBalance() != null) {
+                    currentRemainingBalance = BigDecimal.valueOf(client.getRemainingBalance());
                 } else {
-                    // Reduce: subtract the versment amount
-                    newMontant = currentMontant.subtract(versmentAmount);
-                    // Ensure montant doesn't go below zero
-                    if (newMontant.compareTo(BigDecimal.ZERO) < 0) {
-                        newMontant = BigDecimal.ZERO;
-                    }
+                    // If remaining balance is not set, initialize it with the annual montant
+                    currentRemainingBalance = client.getMontant() != null ? 
+                        BigDecimal.valueOf(client.getMontant()) : BigDecimal.ZERO;
                 }
                 
-                client.setMontant(newMontant.doubleValue());
-                clientDAO.updateClient(client);
+                BigDecimal newRemainingBalance;
                 
-                System.out.println("Updated client " + clientId + " montant from " + 
-                    currentMontant + " to " + newMontant + " (versment: " + versmentAmount + 
-                    ", restore: " + isRestore + ")");
+                if (isRestore) {
+                    // Restore: add back the versment amount to remaining balance
+                    newRemainingBalance = currentRemainingBalance.add(versmentAmount);
+                } else {
+                    // Reduce: subtract the versment amount from remaining balance
+                    newRemainingBalance = currentRemainingBalance.subtract(versmentAmount);
+                    // Allow negative remaining balance (overpayment)
+                }
+                
+                // Update the remaining balance in the database
+                boolean updateSuccess = clientDAO.updateRemainingBalance(clientId, newRemainingBalance.doubleValue());
+                
+                if (updateSuccess) {
+                    System.out.println("Updated client " + clientId + " remaining balance from " + 
+                        currentRemainingBalance + " to " + newRemainingBalance + " (versment: " + versmentAmount + 
+                        ", restore: " + isRestore + ")");
+                } else {
+                    System.err.println("Failed to update remaining balance for client " + clientId);
+                }
             }
         } catch (Exception e) {
-            System.err.println("Error updating client montant after versment operation: " + e.getMessage());
+            System.err.println("Error updating client remaining balance after versment operation: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    // 💰 9. Get remaining amount for a client (montant - total versments)
+    // 🔄 9. Initialize remaining balance for clients that don't have it set
+    public void initializeRemainingBalanceForClient(int clientId) {
+        try {
+            Client client = clientDAO.getClientById(clientId);
+            if (client != null && client.getRemainingBalance() == null) {
+                // Calculate remaining balance = annual montant - total versments
+                BigDecimal annualMontant = client.getMontant() != null ? 
+                    BigDecimal.valueOf(client.getMontant()) : BigDecimal.ZERO;
+                BigDecimal totalVersments = getTotalVersmentsByClientId(clientId);
+                BigDecimal remainingBalance = annualMontant.subtract(totalVersments);
+                
+                // Update the remaining balance
+                boolean success = clientDAO.updateRemainingBalance(clientId, remainingBalance.doubleValue());
+                if (success) {
+                    System.out.println("Initialized remaining balance for client " + clientId + 
+                        ": " + remainingBalance + " DA");
+                } else {
+                    System.err.println("Failed to initialize remaining balance for client " + clientId);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error initializing remaining balance for client: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // 💰 10. Get remaining amount for a client
     public BigDecimal getRemainingAmountForClient(int clientId) {
         try {
             Client client = clientDAO.getClientById(clientId);
-            if (client == null || client.getMontant() == null) {
+            if (client == null) {
                 return BigDecimal.ZERO;
             }
             
-            BigDecimal totalMontant = BigDecimal.valueOf(client.getMontant());
-            BigDecimal totalVersments = getTotalVersmentsByClientId(clientId);
+            // If remaining balance is set, use it
+            if (client.getRemainingBalance() != null) {
+                return BigDecimal.valueOf(client.getRemainingBalance());
+            }
             
-            BigDecimal remaining = totalMontant.subtract(totalVersments);
-            return remaining.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : remaining;
+            // Otherwise calculate it (fallback for legacy data)
+            BigDecimal annualMontant = client.getMontant() != null ? 
+                BigDecimal.valueOf(client.getMontant()) : BigDecimal.ZERO;
+            BigDecimal totalVersments = getTotalVersmentsByClientId(clientId);
+            return annualMontant.subtract(totalVersments);
         } catch (Exception e) {
             System.err.println("Error calculating remaining amount for client: " + e.getMessage());
             return BigDecimal.ZERO;
