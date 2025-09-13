@@ -2,21 +2,40 @@ package com.yourcompany.clientmanagement.view;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
+import com.yourcompany.clientmanagement.controller.ClientController;
+import com.yourcompany.clientmanagement.controller.VersmentController;
+import com.yourcompany.clientmanagement.model.Client;
+import com.yourcompany.clientmanagement.model.Versment;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 
 public class MainFrame extends JFrame {
     private boolean isDarkMode = false;
     private JTabbedPane tabbedPane;
     private JLabel statusLabel;
     private JMenuItem themeToggleButton;
+    private ClientController clientController;
+    private VersmentController versmentController;
+    
+    // Dashboard components
+    private JLabel totalClientsLabel;
+    private JLabel totalVersmentsLabel;
+    private JLabel monthlyRevenueLabel;
+    private JLabel pendingAmountLabel;
 
     public MainFrame() {
         // Set initial theme
         FlatLightLaf.setup();
+        
+        // Initialize controllers
+        clientController = new ClientController();
+        versmentController = new VersmentController();
 
         initializeUI();
         setupTabs();
@@ -124,14 +143,37 @@ public class MainFrame extends JFrame {
         titleLabel.setForeground(new Color(52, 152, 219));
         headerPanel.add(titleLabel);
         
+        // Add refresh button
+        JButton refreshButton = new JButton("🔄 Actualiser");
+        refreshButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        refreshButton.setBackground(new Color(52, 152, 219));
+        refreshButton.setForeground(Color.WHITE);
+        refreshButton.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
+        refreshButton.setFocusPainted(false);
+        refreshButton.addActionListener(e -> updateDashboardData());
+        headerPanel.add(Box.createHorizontalStrut(20));
+        headerPanel.add(refreshButton);
+        
         // Stats cards
         JPanel statsPanel = new JPanel(new GridLayout(2, 2, 20, 20));
         statsPanel.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
         
-        statsPanel.add(createStatsCard("👥", "Total Clients", "0", new Color(52, 152, 219)));
-        statsPanel.add(createStatsCard("💰", "Total Versements", "0.00 DA", new Color(46, 125, 50)));
-        statsPanel.add(createStatsCard("📈", "Revenus ce mois", "0.00 DA", new Color(255, 152, 0)));
-        statsPanel.add(createStatsCard("⏰", "En attente", "0.00 DA", new Color(244, 67, 54)));
+        // Create stats cards with labels that will be updated
+        JPanel totalClientsCard = createStatsCard("👥", "Total Clients", "Chargement...", new Color(52, 152, 219));
+        totalClientsLabel = findValueLabel(totalClientsCard);
+        statsPanel.add(totalClientsCard);
+        
+        JPanel totalVersmentsCard = createStatsCard("💰", "Total Versements", "Chargement...", new Color(46, 125, 50));
+        totalVersmentsLabel = findValueLabel(totalVersmentsCard);
+        statsPanel.add(totalVersmentsCard);
+        
+        JPanel monthlyRevenueCard = createStatsCard("📈", "Revenus ce mois", "Chargement...", new Color(255, 152, 0));
+        monthlyRevenueLabel = findValueLabel(monthlyRevenueCard);
+        statsPanel.add(monthlyRevenueCard);
+        
+        JPanel pendingAmountCard = createStatsCard("⏰", "Montant en attente", "Chargement...", new Color(244, 67, 54));
+        pendingAmountLabel = findValueLabel(pendingAmountCard);
+        statsPanel.add(pendingAmountCard);
         
         dashboard.add(headerPanel, BorderLayout.NORTH);
         dashboard.add(statsPanel, BorderLayout.CENTER);
@@ -156,6 +198,9 @@ public class MainFrame extends JFrame {
         welcomePanel.add(instructionLabel);
         
         dashboard.add(welcomePanel, BorderLayout.SOUTH);
+        
+        // Load initial data
+        SwingUtilities.invokeLater(this::updateDashboardData);
         
         return dashboard;
     }
@@ -194,6 +239,92 @@ public class MainFrame extends JFrame {
         card.add(valueLabel, BorderLayout.CENTER);
         
         return card;
+    }
+    
+    private JLabel findValueLabel(JPanel card) {
+        // Find the value label in the card (it's the second component in the BorderLayout.CENTER)
+        Component centerComponent = ((BorderLayout) card.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        if (centerComponent instanceof JLabel) {
+            return (JLabel) centerComponent;
+        }
+        return null;
+    }
+    
+    private void updateDashboardData() {
+        // Update dashboard data in background thread
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            private int totalClients = 0;
+            private BigDecimal totalVersements = BigDecimal.ZERO;
+            private BigDecimal monthlyRevenue = BigDecimal.ZERO;
+            private BigDecimal pendingAmount = BigDecimal.ZERO;
+            
+            @Override
+            protected Void doInBackground() throws Exception {
+                try {
+                    // Get total clients
+                    List<Client> clients = clientController.fetchAllClients();
+                    totalClients = clients.size();
+                    
+                    // Calculate total versements and pending amounts
+                    List<Versment> allVersements = versmentController.fetchAllVersments();
+                    
+                    // Calculate total versements amount
+                    for (Versment versment : allVersements) {
+                        if (versment.getMontant() != null) {
+                            totalVersements = totalVersements.add(versment.getMontant());
+                        }
+                    }
+                    
+                    // Calculate monthly revenue (current month)
+                    LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+                    LocalDate nextMonth = currentMonth.plusMonths(1);
+                    
+                    for (Versment versment : allVersements) {
+                        if (versment.getDatePaiement() != null && 
+                            versment.getDatePaiement().isAfter(currentMonth.minusDays(1)) &&
+                            versment.getDatePaiement().isBefore(nextMonth)) {
+                            if (versment.getMontant() != null) {
+                                monthlyRevenue = monthlyRevenue.add(versment.getMontant());
+                            }
+                        }
+                    }
+                    
+                    // Calculate pending amounts (sum of all remaining balances)
+                    for (Client client : clients) {
+                        BigDecimal remaining = versmentController.getRemainingAmountForClient(client.getId());
+                        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+                            pendingAmount = pendingAmount.add(remaining);
+                        }
+                    }
+                    
+                } catch (Exception e) {
+                    System.err.println("Error updating dashboard data: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                return null;
+            }
+            
+            @Override
+            protected void done() {
+                // Update UI components on EDT
+                if (totalClientsLabel != null) {
+                    totalClientsLabel.setText(String.valueOf(totalClients));
+                }
+                if (totalVersmentsLabel != null) {
+                    totalVersmentsLabel.setText(totalVersements.toString() + " DA");
+                }
+                if (monthlyRevenueLabel != null) {
+                    monthlyRevenueLabel.setText(monthlyRevenue.toString() + " DA");
+                }
+                if (pendingAmountLabel != null) {
+                    pendingAmountLabel.setText(pendingAmount.toString() + " DA");
+                }
+                
+                updateStatus("✅ Tableau de bord mis à jour");
+            }
+        };
+        
+        worker.execute();
     }
 
     private void setupMenuBar() {
