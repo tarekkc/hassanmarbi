@@ -120,6 +120,9 @@ public class ClientForm extends JFrame {
         JScrollPane scrollPane = new JScrollPane(clientTable);
         scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         add(scrollPane, BorderLayout.CENTER);
+        
+        // Update column headers with totals after data is loaded
+        updateColumnHeadersWithTotals();
     }
 
     private void customizeTableAppearance() {
@@ -298,6 +301,9 @@ public class ClientForm extends JFrame {
         } else {
             sorter.setRowFilter(null);
         }
+        
+        // Update column headers with totals after filtering
+        SwingUtilities.invokeLater(() -> updateColumnHeadersWithTotals());
     }
 
     private void setupButtons() {
@@ -392,6 +398,8 @@ public class ClientForm extends JFrame {
                 break;
             }
         }
+        // Update column headers with new totals
+        updateColumnHeadersWithTotals();
         clientTable.repaint();
     }
 
@@ -570,6 +578,8 @@ public class ClientForm extends JFrame {
                         for (Client c : clients) {
                             tableModel.addRow(convertClientToRow(c));
                         }
+                        // Update column headers with totals after loading data
+                        updateColumnHeadersWithTotals();
                     });
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -619,6 +629,82 @@ public class ClientForm extends JFrame {
 
     private void refreshClientTable() {
         loadClientData();
+    }
+    
+    private void updateColumnHeadersWithTotals() {
+        try {
+            // Calculate totals from current table data
+            int totalClients = tableModel.getRowCount();
+            double totalHonorairesMois = 0.0;
+            double totalMontantAnnual = 0.0;
+            double totalRemainingBalance = 0.0;
+            
+            for (int row = 0; row < tableModel.getRowCount(); row++) {
+                // Honoraires/Mois (column index 10 in model)
+                Object honorairesObj = tableModel.getValueAt(row, COL_HONORAIRES_MOIS);
+                if (honorairesObj != null && !honorairesObj.toString().isEmpty()) {
+                    try {
+                        totalHonorairesMois += Double.parseDouble(honorairesObj.toString());
+                    } catch (NumberFormatException e) {
+                        // Skip invalid values
+                    }
+                }
+                
+                // Montant Annual (column index 11 in model)
+                Object montantObj = tableModel.getValueAt(row, COL_MONTANT);
+                if (montantObj != null) {
+                    if (montantObj instanceof Double) {
+                        totalMontantAnnual += (Double) montantObj;
+                    } else {
+                        try {
+                            totalMontantAnnual += Double.parseDouble(montantObj.toString());
+                        } catch (NumberFormatException e) {
+                            // Skip invalid values
+                        }
+                    }
+                }
+                
+                // Remaining Balance (column index 12 in model) - extract numeric value from "X DA" format
+                Object remainingObj = tableModel.getValueAt(row, COL_MONTANT + 1);
+                if (remainingObj != null) {
+                    String remainingStr = remainingObj.toString();
+                    if (remainingStr.contains(" DA")) {
+                        try {
+                            String numericPart = remainingStr.replace(" DA", "").trim();
+                            totalRemainingBalance += Double.parseDouble(numericPart);
+                        } catch (NumberFormatException e) {
+                            // Skip invalid values
+                        }
+                    }
+                }
+            }
+            
+            // Update column headers with totals
+            TableColumnModel columnModel = clientTable.getColumnModel();
+            
+            // Update "Nom" column header with total clients (visible column index 0, since ID is hidden)
+            TableColumn nomColumn = columnModel.getColumn(0);
+            nomColumn.setHeaderValue("Nom (Total: " + totalClients + " clients)");
+            
+            // Update "Honoraires/Mois" column header (visible column index 9, since ID is hidden)
+            TableColumn honorairesColumn = columnModel.getColumn(9);
+            honorairesColumn.setHeaderValue("Honoraires/Mois (Total: " + String.format("%.2f", totalHonorairesMois) + " DA)");
+            
+            // Update "Montant Annual" column header (visible column index 10, since ID is hidden)
+            TableColumn montantColumn = columnModel.getColumn(10);
+            montantColumn.setHeaderValue("Montant Annual (Total: " + String.format("%.2f", totalMontantAnnual) + " DA)");
+            
+            // Update "Montant Restant" column header (visible column index 11, since ID is hidden)
+            TableColumn remainingColumn = columnModel.getColumn(11);
+            remainingColumn.setHeaderValue("Montant Restant (Total: " + String.format("%.2f", totalRemainingBalance) + " DA)");
+            
+            // Refresh the table header
+            clientTable.getTableHeader().repaint();
+            
+        } catch (Exception e) {
+            System.err.println("Error updating column headers with totals: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     private void restoreAllColumns() {
