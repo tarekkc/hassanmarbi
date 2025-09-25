@@ -165,8 +165,12 @@ public class ClientDAO {
         stmt.setString(10, client.getHonorairesMois());
         stmt.setObject(11, montantAnnual, Types.DECIMAL);
 
-        // Set remaining_balance parameter
-        stmt.setObject(12, client.getRemainingBalance(), Types.DECIMAL);
+        // Set remaining_balance parameter - if not set, use annual amount
+        Double remainingBalance = client.getRemainingBalance();
+        if (remainingBalance == null) {
+            remainingBalance = montantAnnual;
+        }
+        stmt.setObject(12, remainingBalance, Types.DECIMAL);
 
         stmt.setString(13, client.getPhone());
         stmt.setString(14, client.getCompany());

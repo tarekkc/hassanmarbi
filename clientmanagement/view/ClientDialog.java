@@ -74,6 +74,13 @@ public class ClientDialog extends JDialog {
         addNumericValidation(montantRestantField);
         addNumericValidation(sourceField);
 
+        // Add listener to update remaining balance when annual amount changes
+        montantAnnualField.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyReleased(KeyEvent e) {
+                updateRemainingBalanceFromAnnualAmount();
+            }
+        });
         // Add fields to form in 2x2 grid layout
         addFieldWithLabel(formPanel, "Nom*:", nomField);
         addFieldWithLabel(formPanel, "Activité*:", activiteField);
@@ -233,6 +240,20 @@ public class ClientDialog extends JDialog {
         }
     }
 
+    private void updateRemainingBalanceFromAnnualAmount() {
+        String montantText = montantAnnualField.getText().trim();
+        if (!montantText.isEmpty()) {
+            try {
+                Double annualAmount = Double.parseDouble(montantText);
+                // Only update remaining balance if it's empty or for new clients
+                if (montantRestantField.getText().trim().isEmpty() || client == null) {
+                    montantRestantField.setText(String.valueOf(annualAmount));
+                }
+            } catch (NumberFormatException e) {
+                // Invalid number - don't update
+            }
+        }
+    }
     private void validateAndClose() {
         if (nomField.getText().trim().isEmpty()) {
             showValidationError("Le champ 'Nom' est obligatoire", nomField);
@@ -296,10 +317,13 @@ public class ClientDialog extends JDialog {
         String montantText = montantAnnualField.getText().trim();
         c.setMontant(montantText.isEmpty() ? null : Double.parseDouble(montantText));
         
-        // CAPTURE THE REMAINING BALANCE FROM THE UI FIELD - THIS IS THE FIX
+        // Set remaining balance from UI field, or use annual amount if empty
         String montantRestantText = montantRestantField.getText().trim();
         if (!montantRestantText.isEmpty()) {
             c.setRemainingBalance(Double.parseDouble(montantRestantText));
+        } else if (c.getMontant() != null) {
+            // If remaining balance is empty but annual amount is set, use annual amount
+            c.setRemainingBalance(c.getMontant());
         } else {
             c.setRemainingBalance(0.0);
         }

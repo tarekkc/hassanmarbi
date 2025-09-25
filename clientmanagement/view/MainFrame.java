@@ -37,6 +37,10 @@ public class MainFrame extends JFrame {
         clientController = new ClientController();
         versmentController = new VersmentController();
 
+        // Initialize remaining balances for existing clients
+        SwingUtilities.invokeLater(() -> {
+            versmentController.initializeAllRemainingBalances();
+        });
         initializeUI();
         setupTabs();
         setupMenuBar();

@@ -160,7 +160,7 @@ public class VersmentController {
         try {
             Client client = clientDAO.getClientById(clientId);
             if (client != null && client.getRemainingBalance() == null) {
-                // Calculate remaining balance = annual montant - total versments
+                // Initialize remaining balance = annual montant - total versments
                 BigDecimal annualMontant = client.getMontant() != null ? 
                     BigDecimal.valueOf(client.getMontant()) : BigDecimal.ZERO;
                 BigDecimal totalVersments = getTotalVersmentsByClientId(clientId);
@@ -182,7 +182,24 @@ public class VersmentController {
         }
     }
 
-    // 💰 10. Get remaining amount for a client
+    // 🔄 10. Initialize all clients' remaining balances
+    public void initializeAllRemainingBalances() {
+        try {
+            com.yourcompany.clientmanagement.controller.ClientController clientController = 
+                new com.yourcompany.clientmanagement.controller.ClientController();
+            List<com.yourcompany.clientmanagement.model.Client> clients = clientController.fetchAllClients();
+            
+            for (com.yourcompany.clientmanagement.model.Client client : clients) {
+                if (client.getRemainingBalance() == null) {
+                    initializeRemainingBalanceForClient(client.getId());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error initializing all remaining balances: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    // 💰 11. Get remaining amount for a client
     public BigDecimal getRemainingAmountForClient(int clientId) {
         try {
             Client client = clientDAO.getClientById(clientId);
@@ -195,7 +212,7 @@ public class VersmentController {
                 return BigDecimal.valueOf(client.getRemainingBalance());
             }
             
-            // Otherwise calculate it (fallback for legacy data)
+            // Otherwise calculate it (fallback for legacy data) - start with annual amount
             BigDecimal annualMontant = client.getMontant() != null ? 
                 BigDecimal.valueOf(client.getMontant()) : BigDecimal.ZERO;
             BigDecimal totalVersments = getTotalVersmentsByClientId(clientId);
